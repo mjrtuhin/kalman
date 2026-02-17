@@ -1,0 +1,298 @@
+{
+  "model_type": "house_general",
+  "description": "Predicts house prices for all property types in England & Wales",
+  "version": "1.0",
+  
+  "crawler_1": {
+    "name": "Property Data Crawler",
+    "description": "Fetches core property data from Land Registry and EPC Register",
+    "data_sources": [
+      {
+        "name": "land_registry_ppd",
+        "type": "rest_api",
+        "url": "https://landregistry.data.gov.uk/data/ppi/transaction-record.json",
+        "method": "GET",
+        "params_mapping": {
+          "propertyAddress.postcode": "{user_input.postcode}",
+          "_limit": 100,
+          "_sort": "-transactionDate"
+        },
+        "output_fields": [
+          "pricePaid",
+          "transactionDate",
+          "propertyType",
+          "newBuild",
+          "estateType",
+          "propertyAddress"
+        ],
+        "cache_ttl_days": 30,
+        "pydantic_schema": "LandRegistryPPD",
+        "fallback_strategy": "use_cached_if_available"
+      },
+      {
+        "name": "epc_data",
+        "type": "rest_api",
+        "url": "https://epc.opendatacommunities.org/api/v1/domestic/search",
+        "method": "GET",
+        "headers": {
+          "Accept": "application/json"
+        },
+        "params_mapping": {
+          "postcode": "{user_input.postcode}",
+          "size": 10
+        },
+        "output_fields": [
+          "current-energy-rating",
+          "potential-energy-rating",
+          "current-energy-efficiency",
+          "total-floor-area",
+          "property-type",
+          "built-form",
+          "construction-age-band",
+          "tenure",
+          "walls-description",
+          "windows-description",
+          "main-heating-controls",
+          "lodgement-date"
+        ],
+        "cache_ttl_days": 90,
+        "pydantic_schema": "EPCCertificate",
+        "fallback_strategy": "return_null"
+      },
+      {
+        "name": "postcodes_io",
+        "type": "rest_api",
+        "url": "https://api.postcodes.io/postcodes/{postcode}",
+        "method": "GET",
+        "params_mapping": {
+          "postcode": "{user_input.postcode}"
+        },
+        "output_fields": [
+          "latitude",
+          "longitude",
+          "region",
+          "parliamentary_constituency",
+          "lsoa",
+          "msoa",
+          "admin_district",
+          "postcode_sector"
+        ],
+        "cache_ttl_days": 180,
+        "pydantic_schema": "PostcodeData",
+        "fallback_strategy": "fail_request"
+      }
+    ]
+  },
+  
+  "crawler_2": {
+    "name": "Location Context Crawler",
+    "description": "Analyzes local area characteristics (crime, schools, transport)",
+    "data_sources": [
+      {
+        "name": "police_uk_crime",
+        "type": "rest_api",
+        "url": "https://data.police.uk/api/crimes-street/all-crime",
+        "method": "GET",
+        "params_mapping": {
+          "lat": "{derived.latitude}",
+          "lng": "{derived.longitude}",
+          "date": "{derived.date_last_month}"
+        },
+        "output_fields": [
+          "category",
+          "location.street.name",
+          "outcome_status",
+          "month"
+        ],
+        "cache_ttl_days": 30,
+        "pydantic_schema": "PoliceCrimeData",
+        "fallback_strategy": "use_cached_if_available",
+        "notes": "No auth required, rate limited, returns crimes within 1 mile radius"
+      },
+      {
+        "name": "flood_risk",
+        "type": "rest_api",
+        "url": "https://environment.data.gov.uk/flood-monitoring/id/stations",
+        "method": "GET",
+        "params_mapping": {
+          "lat": "{derived.latitude}",
+          "long": "{derived.longitude}",
+          "dist": 5
+        },
+        "output_fields": [
+          "items.label",
+          "items.stationReference",
+          "items.status"
+        ],
+        "cache_ttl_days": 180,
+        "pydantic_schema": "FloodRiskData",
+        "fallback_strategy": "return_null",
+        "notes": "Returns nearby flood monitoring stations within 5km"
+      }
+    ]
+  },
+  
+  "crawler_3": {
+    "name": "Market Intelligence Crawler",
+    "description": "Retrieves market trends and comparable sales data",
+    "data_sources": [
+      {
+        "name": "ons_house_price_index",
+        "type": "csv_static",
+        "file_path": "data/training/raw/ons_hpi.csv",
+        "filter": {
+          "region_name": "{derived.region}",
+          "date_from": "{derived.date_minus_12_months}"
+        },
+        "output_fields": [
+          "date",
+          "region_name",
+          "average_price",
+          "index",
+          "monthly_change",
+          "annual_change"
+        ],
+        "cache_ttl_days": 30,
+        "pydantic_schema": "ONSHousePriceIndex",
+        "notes": "Pre-downloaded CSV, filtered by region"
+      },
+      {
+        "name": "comparable_sales",
+        "type": "land_registry_query",
+        "source": "crawler_1.land_registry_ppd",
+        "filter": {
+          "postcode_sector": "{derived.postcode_sector}",
+          "property_type": "{user_input.property_type}",
+          "date_from": "{derived.date_minus_6_months}",
+          "price_range": "within_30_percent_of_estimated"
+        },
+        "output_fields": [
+          "pricePaid",
+          "transactionDate",
+          "propertyType",
+          "estateType",
+          "distance_km"
+        ],
+        "cache_ttl_days": 30,
+        "notes": "Re-uses Land Registry data from crawler_1, filters for comparables"
+      }
+    ]
+  },
+  
+  "feature_engineering": {
+    "description": "Derived features created from raw data",
+    "derived_features": [
+      {
+        "name": "price_per_sqft",
+        "formula": "price / floor_area",
+        "inputs": ["price", "floor_area"],
+        "default_if_missing": "median_by_property_type"
+      },
+      {
+        "name": "crime_rate_monthly",
+        "formula": "count(crimes_last_12_months) / 12",
+        "inputs": ["crimes_last_12_months"],
+        "default_if_missing": 0
+      },
+      {
+        "name": "distance_to_station_km",
+        "formula": "haversine(property_coords, nearest_station_coords)",
+        "inputs": ["latitude", "longitude", "nearest_station_lat", "nearest_station_lng"],
+        "default_if_missing": 10.0
+      },
+      {
+        "name": "epc_rating_numeric",
+        "formula": "map(A=7, B=6, C=5, D=4, E=3, F=2, G=1, Unknown=4)",
+        "inputs": ["epc_rating"],
+        "default_if_missing": 4
+      },
+      {
+        "name": "months_since_last_sale",
+        "formula": "months_between(current_date, last_transaction_date)",
+        "inputs": ["last_transaction_date"],
+        "default_if_missing": 120
+      },
+      {
+        "name": "lease_years_remaining_band",
+        "formula": "bin(lease_years: <60=1, 60-80=2, 80-100=3, 100-125=4, 125+=5, freehold=6)",
+        "inputs": ["lease_years_remaining", "tenure"],
+        "default_if_missing": 6
+      },
+      {
+        "name": "parking_numeric",
+        "formula": "map(None=0, Street=1, Driveway=2, Single_Garage=3, Double_Garage=4, Carport=2)",
+        "inputs": ["parking"],
+        "default_if_missing": 0
+      },
+      {
+        "name": "garden_size_numeric",
+        "formula": "map(None=0, Small=1, Medium=2, Large=3, South_Facing_Large=4)",
+        "inputs": ["garden"],
+        "default_if_missing": 0
+      },
+      {
+        "name": "heating_efficiency_score",
+        "formula": "combine(heating_system, boiler_age, insulation_flags)",
+        "inputs": ["heating_system", "boiler_age", "loft_insulation", "wall_insulation"],
+        "default_if_missing": 50
+      },
+      {
+        "name": "comparable_sales_median",
+        "formula": "median(comparable_sales_prices)",
+        "inputs": ["comparable_sales"],
+        "default_if_missing": "area_median"
+      }
+    ],
+    
+    "categorical_features": [
+      "postcode_sector",
+      "property_type",
+      "tenure",
+      "region",
+      "epc_rating",
+      "heating_system",
+      "double_glazing"
+    ],
+    
+    "numerical_features": [
+      "bedrooms",
+      "bathrooms",
+      "ensuite",
+      "reception_rooms",
+      "floor_area",
+      "year_built",
+      "price_per_sqft",
+      "crime_rate_monthly",
+      "distance_to_station_km",
+      "epc_rating_numeric",
+      "months_since_last_sale",
+      "lease_years_remaining_band",
+      "parking_numeric",
+      "garden_size_numeric",
+      "heating_efficiency_score",
+      "boiler_age",
+      "comparable_sales_median"
+    ],
+    
+    "boolean_features": [
+      "loft_converted",
+      "basement",
+      "porch",
+      "conservatory",
+      "solar_panels",
+      "loft_insulation",
+      "wall_insulation"
+    ]
+  },
+  
+  "model_metadata": {
+    "model_file": "house_general_v1.cbm",
+    "target_variable": "price",
+    "model_type": "regression",
+    "expected_r2": 0.82,
+    "expected_mae": 15000,
+    "training_data_size": "3M+ transactions",
+    "training_date_range": "2020-2025",
+    "geographic_coverage": "England & Wales"
+  }
+}

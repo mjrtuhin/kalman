@@ -1,0 +1,260 @@
+{
+  "model_type": "business_restaurant",
+  "description": "Predicts viability of opening a restaurant at a given UK location",
+  "version": "1.0",
+  
+  "crawler_1": {
+    "name": "Restaurant Market Crawler",
+    "description": "Fetches competitor data and sector survival rates",
+    "data_sources": [
+      {
+        "name": "companies_house_competitors",
+        "type": "csv_static",
+        "file_path": "data/training/raw/companies_house_restaurants.csv",
+        "filter": {
+          "sic_code": "56101",
+          "postcode_area": "{derived.postcode_area}",
+          "status": ["active", "dissolved"],
+          "within_radius_km": 2
+        },
+        "output_fields": [
+          "company_number",
+          "company_name",
+          "postcode",
+          "company_status",
+          "incorporation_date",
+          "dissolution_date",
+          "sic_code"
+        ],
+        "cache_ttl_days": 90,
+        "pydantic_schema": "CompaniesHouseCompany",
+        "notes": "Pre-filtered CSV for SIC 56101 (Licensed Restaurants)"
+      },
+      {
+        "name": "ons_restaurant_survival",
+        "type": "csv_static",
+        "file_path": "data/training/raw/ons_business_demography.csv",
+        "filter": {
+          "sic_section": "I",
+          "sic_division": "56",
+          "region": "{derived.region}"
+        },
+        "output_fields": [
+          "region",
+          "sic_code",
+          "survival_rate_1yr",
+          "survival_rate_3yr",
+          "survival_rate_5yr",
+          "birth_rate",
+          "death_rate"
+        ],
+        "cache_ttl_days": 365,
+        "pydantic_schema": "ONSBusinessDemography",
+        "notes": "Section I = Accommodation and Food Service"
+      },
+      {
+        "name": "postcodes_io",
+        "type": "rest_api",
+        "url": "https://api.postcodes.io/postcodes/{postcode}",
+        "method": "GET",
+        "params_mapping": {
+          "postcode": "{user_input.location}"
+        },
+        "output_fields": [
+          "latitude",
+          "longitude",
+          "region",
+          "lsoa",
+          "msoa",
+          "admin_district",
+          "postcode_area"
+        ],
+        "cache_ttl_days": 180,
+        "pydantic_schema": "PostcodeData",
+        "fallback_strategy": "fail_request"
+      }
+    ]
+  },
+  
+  "crawler_2": {
+    "name": "Location Analysis Crawler",
+    "description": "Analyzes local demographics and accessibility",
+    "data_sources": [
+      {
+        "name": "openstreetmap_competitors",
+        "type": "overpass_api",
+        "url": "https://overpass-api.de/api/interpreter",
+        "query_template": "[out:json];(node[\"amenity\"=\"restaurant\"](around:{radius},{lat},{lng}););out;",
+        "params_mapping": {
+          "radius": 1000,
+          "lat": "{derived.latitude}",
+          "lng": "{derived.longitude}"
+        },
+        "output_fields": [
+          "elements.id",
+          "elements.tags.name",
+          "elements.lat",
+          "elements.lon",
+          "elements.tags.cuisine"
+        ],
+        "cache_ttl_days": 30,
+        "pydantic_schema": "OSMPOIData",
+        "notes": "Finds restaurants within 1km radius"
+      },
+      {
+        "name": "voa_commercial_rent",
+        "type": "csv_static",
+        "file_path": "data/training/raw/voa_rating_list.csv",
+        "filter": {
+          "postcode_area": "{derived.postcode_area}",
+          "property_description_contains": "restaurant"
+        },
+        "output_fields": [
+          "rateable_value",
+          "property_description",
+          "postcode"
+        ],
+        "cache_ttl_days": 180,
+        "pydantic_schema": "VOARatingData",
+        "notes": "Commercial property rateable values for cost benchmarking"
+      },
+      {
+        "name": "ons_population",
+        "type": "csv_static",
+        "file_path": "data/training/raw/ons_population_estimates.csv",
+        "filter": {
+          "lsoa_code": "{derived.lsoa}"
+        },
+        "output_fields": [
+          "lsoa_code",
+          "population",
+          "area_hectares",
+          "density"
+        ],
+        "cache_ttl_days": 365,
+        "pydantic_schema": "ONSPopulationData",
+        "notes": "LSOA-level population density"
+      }
+    ]
+  },
+  
+  "crawler_3": {
+    "name": "Sector Intelligence Crawler",
+    "description": "Retrieves food service sector performance trends",
+    "data_sources": [
+      {
+        "name": "ons_retail_sales_food",
+        "type": "csv_static",
+        "file_path": "data/training/raw/ons_retail_sales.csv",
+        "filter": {
+          "sector_code": "5.6",
+          "date_from": "{derived.date_minus_12_months}"
+        },
+        "output_fields": [
+          "period",
+          "sector_name",
+          "sales_value",
+          "sales_volume",
+          "sales_value_sa",
+          "month_on_month_change",
+          "year_on_year_change"
+        ],
+        "cache_ttl_days": 30,
+        "pydantic_schema": "ONSRetailSalesData",
+        "notes": "Sector 5.6 = Restaurants and mobile food service"
+      }
+    ]
+  },
+  
+  "feature_engineering": {
+    "description": "Business viability features derived from raw data",
+    "derived_features": [
+      {
+        "name": "competition_density",
+        "formula": "count(competitors_within_1km) / (3.14159 * 1^2)",
+        "inputs": ["competitors_within_1km"],
+        "default_if_missing": 0
+      },
+      {
+        "name": "death_rate_6mo",
+        "formula": "count(dissolved_last_6mo) / count(total_competitors)",
+        "inputs": ["dissolved_companies", "active_companies"],
+        "default_if_missing": 0.1
+      },
+      {
+        "name": "rent_affordability",
+        "formula": "monthly_rent / startup_budget",
+        "inputs": ["monthly_rent", "startup_budget"],
+        "default_if_missing": 0.05
+      },
+      {
+        "name": "footfall_proxy",
+        "formula": "population_density * 0.01",
+        "inputs": ["population_density"],
+        "default_if_missing": 10
+      },
+      {
+        "name": "sector_momentum",
+        "formula": "(sales_latest - sales_12mo_ago) / sales_12mo_ago",
+        "inputs": ["retail_sales_food_service"],
+        "default_if_missing": 0
+      },
+      {
+        "name": "experience_score",
+        "formula": "min(experience_years / 5, 1.0) * (1 + previous_business * 0.3 + qualifications * 0.2)",
+        "inputs": ["experience_years", "previous_business", "qualifications"],
+        "default_if_missing": 0
+      },
+      {
+        "name": "operating_margin",
+        "formula": "(expected_daily_revenue * 30 - monthly_operating_costs) / (expected_daily_revenue * 30)",
+        "inputs": ["daily_footfall", "avg_spend", "monthly_operating_costs"],
+        "default_if_missing": 0.1
+      }
+    ],
+    
+    "categorical_features": [
+      "region",
+      "postcode_area",
+      "premises_type",
+      "visibility"
+    ],
+    
+    "numerical_features": [
+      "competition_density",
+      "death_rate_6mo",
+      "survival_rate_3yr",
+      "startup_budget",
+      "monthly_rent",
+      "rent_affordability",
+      "shop_size",
+      "footfall_proxy",
+      "population_density",
+      "sector_momentum",
+      "experience_years",
+      "experience_score",
+      "team_size",
+      "daily_footfall",
+      "avg_spend",
+      "operating_margin"
+    ],
+    
+    "boolean_features": [
+      "parking_nearby",
+      "delivery_access",
+      "previous_business",
+      "qualifications"
+    ]
+  },
+  
+  "model_metadata": {
+    "model_file": "business_restaurant_v1.cbm",
+    "target_variable": "viability_score",
+    "model_type": "classification",
+    "expected_accuracy": 0.70,
+    "expected_precision": 0.68,
+    "training_data_size": "10K+ businesses",
+    "training_date_range": "2015-2025",
+    "geographic_coverage": "UK-wide"
+  }
+}

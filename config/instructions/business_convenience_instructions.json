@@ -1,0 +1,199 @@
+{
+  "model_type": "business_convenience",
+  "description": "Predicts viability of opening a convenience store in UK",
+  "version": "1.0",
+  
+  "crawler_1": {
+    "name": "Convenience Store Market Crawler",
+    "description": "Fetches competitor data and retail sector metrics",
+    "data_sources": [
+      {
+        "name": "companies_house_competitors",
+        "type": "csv_static",
+        "file_path": "data/training/raw/companies_house_convenience.csv",
+        "filter": {
+          "sic_code": "47110",
+          "postcode_area": "{derived.postcode_area}",
+          "status": ["active", "dissolved"],
+          "within_radius_km": 1
+        },
+        "output_fields": [
+          "company_number",
+          "company_name",
+          "postcode",
+          "company_status",
+          "incorporation_date",
+          "dissolution_date"
+        ],
+        "cache_ttl_days": 90,
+        "pydantic_schema": "CompaniesHouseCompany",
+        "notes": "SIC 47110 = Retail sale in non-specialised stores with food predominating"
+      },
+      {
+        "name": "ons_convenience_survival",
+        "type": "csv_static",
+        "file_path": "data/training/raw/ons_business_demography.csv",
+        "filter": {
+          "sic_section": "G",
+          "sic_division": "47",
+          "region": "{derived.region}"
+        },
+        "output_fields": [
+          "region",
+          "survival_rate_1yr",
+          "survival_rate_3yr",
+          "survival_rate_5yr",
+          "birth_rate",
+          "death_rate"
+        ],
+        "cache_ttl_days": 365,
+        "pydantic_schema": "ONSBusinessDemography",
+        "notes": "Section G = Wholesale and retail trade"
+      },
+      {
+        "name": "postcodes_io",
+        "type": "rest_api",
+        "url": "https://api.postcodes.io/postcodes/{postcode}",
+        "method": "GET",
+        "params_mapping": {
+          "postcode": "{user_input.location}"
+        },
+        "output_fields": [
+          "latitude",
+          "longitude",
+          "region",
+          "lsoa",
+          "msoa",
+          "postcode_area"
+        ],
+        "cache_ttl_days": 180,
+        "pydantic_schema": "PostcodeData"
+      }
+    ]
+  },
+  
+  "crawler_2": {
+    "name": "Local Market Crawler",
+    "description": "Analyzes local competition and demographics",
+    "data_sources": [
+      {
+        "name": "openstreetmap_competitors",
+        "type": "overpass_api",
+        "url": "https://overpass-api.de/api/interpreter",
+        "query_template": "[out:json];(node[\"shop\"=\"convenience\"](around:{radius},{lat},{lng}););out;",
+        "params_mapping": {
+          "radius": 500,
+          "lat": "{derived.latitude}",
+          "lng": "{derived.longitude}"
+        },
+        "output_fields": [
+          "elements.id",
+          "elements.tags.name",
+          "elements.lat",
+          "elements.lon",
+          "elements.tags.opening_hours"
+        ],
+        "cache_ttl_days": 30,
+        "pydantic_schema": "OSMPOIData",
+        "notes": "Finds convenience stores within 500m"
+      },
+      {
+        "name": "ons_population",
+        "type": "csv_static",
+        "file_path": "data/training/raw/ons_population_estimates.csv",
+        "filter": {
+          "lsoa_code": "{derived.lsoa}"
+        },
+        "output_fields": [
+          "population",
+          "area_hectares",
+          "density"
+        ],
+        "cache_ttl_days": 365,
+        "pydantic_schema": "ONSPopulationData"
+      }
+    ]
+  },
+  
+  "crawler_3": {
+    "name": "Retail Sector Crawler",
+    "description": "Retrieves retail sales trends",
+    "data_sources": [
+      {
+        "name": "ons_retail_sales",
+        "type": "csv_static",
+        "file_path": "data/training/raw/ons_retail_sales.csv",
+        "filter": {
+          "sector_code": "4.7",
+          "date_from": "{derived.date_minus_12_months}"
+        },
+        "output_fields": [
+          "period",
+          "sales_value",
+          "sales_volume",
+          "month_on_month_change",
+          "year_on_year_change"
+        ],
+        "cache_ttl_days": 30,
+        "pydantic_schema": "ONSRetailSalesData",
+        "notes": "Sector 4.7 = Other stores (includes convenience)"
+      }
+    ]
+  },
+  
+  "feature_engineering": {
+    "derived_features": [
+      {
+        "name": "competition_density_500m",
+        "formula": "count(competitors_500m) / (3.14159 * 0.5^2)",
+        "inputs": ["competitors_500m"],
+        "default_if_missing": 0
+      },
+      {
+        "name": "population_per_store",
+        "formula": "lsoa_population / (1 + competitor_count)",
+        "inputs": ["lsoa_population", "competitor_count"],
+        "default_if_missing": 1000
+      },
+      {
+        "name": "rent_to_revenue_ratio",
+        "formula": "monthly_rent / (daily_footfall * avg_spend * 30)",
+        "inputs": ["monthly_rent", "daily_footfall", "avg_spend"],
+        "default_if_missing": 0.2
+      }
+    ],
+    
+    "categorical_features": [
+      "region",
+      "postcode_area",
+      "premises_type"
+    ],
+    
+    "numerical_features": [
+      "competition_density_500m",
+      "population_density",
+      "population_per_store",
+      "survival_rate_3yr",
+      "startup_budget",
+      "monthly_rent",
+      "rent_to_revenue_ratio",
+      "shop_size",
+      "experience_years",
+      "team_size"
+    ],
+    
+    "boolean_features": [
+      "parking_nearby",
+      "previous_business"
+    ]
+  },
+  
+  "model_metadata": {
+    "model_file": "business_convenience_v1.cbm",
+    "target_variable": "viability_score",
+    "model_type": "classification",
+    "expected_accuracy": 0.72,
+    "training_data_size": "5K+ businesses",
+    "geographic_coverage": "UK-wide"
+  }
+}

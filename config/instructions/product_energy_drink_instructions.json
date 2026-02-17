@@ -1,0 +1,199 @@
+{
+  "model_type": "product_energy_drink",
+  "description": "Predicts launch success for energy drinks in UK market",
+  "version": "1.0",
+  
+  "crawler_1": {
+    "name": "Product Demand Crawler",
+    "description": "Fetches search trends and consumer interest data",
+    "data_sources": [
+      {
+        "name": "google_trends_energy_drinks",
+        "type": "pytrends_api",
+        "keywords": ["energy drink", "{user_input.product_name}", "sports drink", "caffeine drink"],
+        "timeframe": "today 12-m",
+        "geo": "GB",
+        "output_fields": [
+          "date",
+          "interest",
+          "related_queries_rising",
+          "related_queries_top",
+          "regional_interest"
+        ],
+        "cache_ttl_days": 7,
+        "pydantic_schema": "GoogleTrendsData",
+        "notes": "Uses pytrends library for Google Trends data"
+      },
+      {
+        "name": "ons_consumer_trends",
+        "type": "csv_static",
+        "file_path": "data/training/raw/ons_consumer_trends.csv",
+        "filter": {
+          "coicop_category": "01.2.2",
+          "date_from": "{derived.date_minus_12_months}"
+        },
+        "output_fields": [
+          "period",
+          "category_name",
+          "expenditure",
+          "volume",
+          "quarter_on_quarter_change"
+        ],
+        "cache_ttl_days": 90,
+        "pydantic_schema": "ONSConsumerTrendsData",
+        "notes": "COICOP 01.2.2 = Non-alcoholic beverages"
+      }
+    ]
+  },
+  
+  "crawler_2": {
+    "name": "Competitor Analysis Crawler",
+    "description": "Analyzes existing products and market positioning",
+    "data_sources": [
+      {
+        "name": "amazon_energy_drinks",
+        "type": "csv_static",
+        "file_path": "data/training/raw/kaggle_amazon_energy_drinks.csv",
+        "filter": {
+          "category": "Energy Drinks",
+          "uk_available": true
+        },
+        "output_fields": [
+          "product_name",
+          "brand",
+          "price",
+          "rating",
+          "review_count",
+          "sales_rank",
+          "features"
+        ],
+        "cache_ttl_days": 30,
+        "pydantic_schema": "AmazonProductData",
+        "notes": "Kaggle dataset - static snapshot of Amazon UK products"
+      }
+    ]
+  },
+  
+  "crawler_3": {
+    "name": "Market Size Crawler",
+    "description": "Retrieves market size and growth data",
+    "data_sources": [
+      {
+        "name": "ons_retail_sales_beverages",
+        "type": "csv_static",
+        "file_path": "data/training/raw/ons_retail_sales.csv",
+        "filter": {
+          "sector_code": "4.7.2",
+          "date_from": "{derived.date_minus_24_months}"
+        },
+        "output_fields": [
+          "period",
+          "sector_name",
+          "sales_value",
+          "sales_volume",
+          "year_on_year_change"
+        ],
+        "cache_ttl_days": 30,
+        "pydantic_schema": "ONSRetailSalesData",
+        "notes": "Sector 4.7.2 = Food, beverages and tobacco in specialized stores"
+      }
+    ]
+  },
+  
+  "feature_engineering": {
+    "derived_features": [
+      {
+        "name": "trends_momentum",
+        "formula": "linear_regression_slope(interest_last_90_days)",
+        "inputs": ["google_trends_interest"],
+        "default_if_missing": 0
+      },
+      {
+        "name": "competitor_count",
+        "formula": "count(amazon_products_in_category)",
+        "inputs": ["amazon_products"],
+        "default_if_missing": 50
+      },
+      {
+        "name": "avg_competitor_rating",
+        "formula": "mean(amazon_product_ratings)",
+        "inputs": ["amazon_products"],
+        "default_if_missing": 4.0
+      },
+      {
+        "name": "price_positioning_percentile",
+        "formula": "percentile_rank(user_price, competitor_prices)",
+        "inputs": ["retail_price", "competitor_prices"],
+        "default_if_missing": 0.5
+      },
+      {
+        "name": "market_growth_rate",
+        "formula": "mean(year_on_year_changes_last_12mo)",
+        "inputs": ["retail_sales_beverages"],
+        "default_if_missing": 0.02
+      },
+      {
+        "name": "profit_margin_score",
+        "formula": "(retail_price - cost_to_produce) / retail_price",
+        "inputs": ["retail_price", "cost_to_produce"],
+        "default_if_missing": 0.3
+      },
+      {
+        "name": "marketing_intensity",
+        "formula": "marketing_budget / (retail_price * initial_stock)",
+        "inputs": ["marketing_budget", "retail_price", "initial_stock"],
+        "default_if_missing": 0.1
+      },
+      {
+        "name": "certification_score",
+        "formula": "count(certifications) * 0.05",
+        "inputs": ["certifications"],
+        "default_if_missing": 0
+      }
+    ],
+    
+    "categorical_features": [
+      "launch_channel",
+      "target_area",
+      "price_position",
+      "gender",
+      "income_level"
+    ],
+    
+    "numerical_features": [
+      "trends_momentum",
+      "competitor_count",
+      "avg_competitor_rating",
+      "retail_price",
+      "price_positioning_percentile",
+      "market_growth_rate",
+      "profit_margin_score",
+      "marketing_budget",
+      "marketing_intensity",
+      "initial_stock",
+      "shelf_life",
+      "certification_score"
+    ],
+    
+    "boolean_features": [
+      "social_media",
+      "influencer",
+      "made_in_uk"
+    ],
+    
+    "text_features": [
+      "usp",
+      "product_description"
+    ]
+  },
+  
+  "model_metadata": {
+    "model_file": "product_energy_drink_v1.cbm",
+    "target_variable": "launch_success_probability",
+    "model_type": "classification",
+    "expected_accuracy": 0.68,
+    "training_data_size": "500+ products",
+    "training_date_range": "2018-2025",
+    "geographic_coverage": "UK market"
+  }
+}
