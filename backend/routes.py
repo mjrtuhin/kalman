@@ -21,6 +21,38 @@ async def chat(request: ChatRequest):
         parsed = nlp_agent.parse_query(request.message)
         intent = nlp_agent.extract_intent(request.message)
         
+        query_lower = request.message.lower()
+        
+        if "anywhere" in query_lower or ("london" in query_lower and "postcode" not in parsed["input_data"]):
+            response = """I can give you a general idea! London property prices vary a lot by area:
+
+📍 **Central London (SW1, W1):** £800K - £2M+ for a typical house
+📍 **Inner London (E1, N1):** £500K - £900K
+📍 **Outer London (BR1, RM1):** £300K - £600K
+
+For a specific prediction, please provide:
+- A postcode (e.g., SW1A 1AA)
+- Property type (detached, semi, terraced, flat)
+
+Example: "How much is a 3 bed semi in SW1A 1AA?"
+"""
+            chat_manager.add_message(conv_id, "assistant", response)
+            return ChatResponse(
+                message=response,
+                conversation_id=conv_id,
+                metadata={"intent": "general_guidance"}
+            )
+        
+        if parsed.get("missing_fields") and intent == "predict_price":
+            missing_prompt = nlp_agent.get_missing_fields_prompt(parsed["missing_fields"])
+            chat_manager.add_message(conv_id, "assistant", missing_prompt)
+            
+            return ChatResponse(
+                message=missing_prompt,
+                conversation_id=conv_id,
+                metadata={"intent": "request_info", "missing": parsed["missing_fields"]}
+            )
+        
         if intent == "predict_price":
             result = prediction_service.predict_house_price(parsed["input_data"])
             response_message = f"💰 {result['explanation']}"
@@ -55,7 +87,7 @@ async def chat(request: ChatRequest):
             )
         
         else:
-            response_text = "Ask me: How much is a 3 bed semi in SW1 worth?"
+            response_text = "💡 Try asking: 'How much is a 3 bed semi in SW1 worth?' or 'What's the price of a flat in Manchester M1?'"
             chat_manager.add_message(conv_id, "assistant", response_text)
             return ChatResponse(
                 message=response_text,
@@ -66,7 +98,7 @@ async def chat(request: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/predict", response_model=PredictionResponse)
+@router.post("/predict")
 async def predict(request: PredictionRequest):
     try:
         result = prediction_service.predict_house_price(request.input_data)

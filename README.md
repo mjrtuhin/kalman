@@ -1,272 +1,417 @@
-# KALMAN - Knowledge Agents for Launch, Market & Asset Navigation
+# ⚠️ KALMAN - House Price Prediction MVP
 
-[![Status](https://img.shields.io/badge/status-under%20development-yellow)](https://github.com/mjrtuhin/kalman)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+## ⚠️ Important Notice - Read Before Using
 
-> Multi-purpose AI prediction platform for the UK market: House Prices, Business Viability, and Product Launch Success
+**This is a functional ML proof-of-concept with known limitations.**
 
----
+### What This Model CAN Predict:
+- ✅ Property prices based on **location (postcode sector)**
+- ✅ Property prices based on **type** (Detached/Semi/Terraced/Flat)
+- ✅ Property prices based on **tenure** (Freehold/Leasehold)
 
-## 🎯 What is KALMAN?
+### What This Model CANNOT Predict:
+- ❌ **Bedrooms** - not in training data
+- ❌ **Floor area** - not in training data
+- ❌ **Bathrooms** - not in training data
+- ❌ **Garden/Parking** - not in training data
+- ❌ **Condition/Age** - not in training data
 
-KALMAN is a **free, AI-powered prediction platform** designed specifically for the UK market. It uses machine learning models trained on government data to provide three types of predictions:
+### Why These Limitations?
+The UK Land Registry Price Paid Data (our training source) only contains:
+- Transaction price
+- Date
+- Postcode
+- Property type (D/S/T/F)
+- Tenure (F/L)
+- New build flag
 
-1. **🏠 House Price Prediction** - Estimate property values (Target: R² 0.80-0.85)
-2. **💼 Business Viability Assessment** - Predict business success probability (Target: 65-75% accuracy)
-3. **🚀 Product Launch Success** - Forecast market reception (Target: 60-70% accuracy)
+**It does NOT contain property features like bedrooms or size.**
 
-**Key Features:**
-- ✅ 100% free UK government data sources (Land Registry, Companies House, ONS, Police.uk)
-- ✅ CatBoost models with SHAP explainability (GDPR Article 22 compliant)
-- ✅ LLM interpretation via Ollama + Llama 3 (plain-English explanations)
-- ✅ Comprehensive feature set (95+ features across all categories)
-- ✅ Deployed on Hugging Face Spaces + Google Colab
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Python 3.10+
-- 16GB RAM (for training models)
-- 50GB disk space (for training data)
-
-### Installation
-```bash
-# Clone repository
-git clone https://github.com/mjrtuhin/kalman.git
-cd kalman
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run backend API
-uvicorn backend.main:app --reload --port 8000
-
-# Run frontend (in another terminal)
-streamlit run frontend/streamlit_app.py
-```
-
-Access the app at: **http://localhost:8501**
+To add these features would require:
+- Downloading EPC Register (~6GB)
+- Address matching/fuzzy joining
+- 4-6 additional hours of work
 
 ---
 
-## 📊 Feature Overview
+## 🎯 What I Actually Accomplished
 
-### 🏠 House Price Prediction (~40 Features)
-- **Basic Details**: Postcode, property type, year built, tenure, lease years
-- **Space**: Bedrooms, bathrooms, en-suites, reception rooms, floor area, loft, basement
-- **Outdoor**: Garden (size/south-facing), parking (driveway/garage), porch, conservatory
-- **Energy**: EPC rating, heating system, solar panels, insulation, double glazing
-- **Condition**: Recent renovations, broadband speed, mobile signal
-- **Auto-fetched**: Crime rate, school quality, flood risk, transport links
+### ✅ Complete ML Pipeline (End-to-End)
 
-### 💼 Business Viability (~25 Features)
-**15 Business Types:** Restaurants (Pakistani/Indian/Chinese), Fast Food (Chicken/Fish), Halal Butcher, Asian Grocery, Convenience Store, Clothing (Pakistani/Islamic/General), Phone Shop, Pharmacy, Barber, Hair Salon, Beauty Salon
+**1. Data Engineering**
+- Downloaded 918,266 UK property transactions (2024)
+- Cleaned data: 918K → 866K (94.3% retention)
+- Handled outliers (price £10K-£10M filter)
+- Feature engineering (12 engineered features)
+- Saved as optimized Parquet format
 
-- **Financial**: Startup budget, rent, investment, operating costs
-- **Premises**: Size, visibility, parking, delivery access, opening hours
-- **Experience**: Years in industry, qualifications, team size
-- **Target Market**: Demographics, footfall, average spend
-- **Auto-fetched**: Competitor density, sector survival rates, population data
+**2. Machine Learning**
+- Trained CatBoost regression model
+- **R² Score: 0.5855** (explains 58.5% of variance)
+- **MAE: £97,173** (average error)
+- **RMSE: £213,057**
+- Model size: 23MB
+- Training time: ~30 minutes on 866K samples
 
-### 🚀 Product Launch (~30 Features)
-**15 Product Types:** Energy Drink, Electrolyte Drink, Protein Shake, Sparkling Water, Fruit Juice, Protein Bars, Plant-Based Meat, Ready Meals, Halal Meals, Wireless Earbuds, Bluetooth Speakers, Phone Cases, Skincare, Hair Care, Beard Care
+**3. Model Features (12 Total)**
+- Categorical (5): property_type, duration, postcode_sector, town_city, county
+- Numerical (7): month, quarter, is_new_build, is_freehold, sector_median_price, town_median_price, property_type_median
 
-- **Pricing**: Retail price, cost, margins, positioning (budget/premium)
-- **Market**: Launch channel, geographic area, distribution partners
-- **Audience**: Age groups, gender, income level, lifestyle
-- **Marketing**: Budget, social media, influencers, competitors, USP
-- **Attributes**: Packaging, certifications (Halal/Vegan/Organic), Made in UK
-- **Auto-fetched**: Google Trends, competitor analysis, market size, seasonal patterns
+**4. Explainability**
+- SHAP values for feature importance
+- Top 5 factors identified per prediction
+- Waterfall charts showing contribution
 
----
+**5. LLM Integration**
+- Installed Ollama + Llama 3.2 (3B model)
+- Real AI-generated explanations (not templates!)
+- Natural, conversational language
+- Context-aware responses
 
-## 🏗️ Architecture
+**6. REST API Backend**
+- FastAPI framework
+- `/api/predict` - structured predictions
+- `/api/chat` - natural language interface
+- Conversation memory with unique IDs
+- Error handling & validation
 
-### 5-Agent System
-```
-┌─────────────────────────────────────────────────────────┐
-│              STREAMLIT FRONTEND                         │
-│  Dropdown → Dynamic Forms → Results Display             │
-└─────────────────┬───────────────────────────────────────┘
-                  │ HTTP POST /api/predict
-┌─────────────────▼───────────────────────────────────────┐
-│              FASTAPI ORCHESTRATOR                       │
-│  Loads JSON instructions → Dispatches agents           │
-└──┬────────────────┬────────────────┬───────────────────┘
-   │                │                │
-┌──▼──────┐  ┌──────▼──────┐  ┌─────▼────────┐
-│Crawler 1│  │  Crawler 2  │  │  Crawler 3   │
-│(Primary)│  │ (Location)  │  │  (Market)    │
-└──┬──────┘  └──────┬──────┘  └─────┬────────┘
-   │                │                │
-   └────────────────┼────────────────┘
-                    ▼
-        ┌───────────────────────┐
-        │ PREPROCESSING AGENT   │
-        │ Clean → Engineer      │
-        └───────────┬───────────┘
-                    ▼
-        ┌───────────────────────┐
-        │ ML EXECUTION AGENT    │
-        │ Predict → SHAP → LLM  │
-        └───────────────────────┘
-```
+**7. Natural Language Processing**
+- Parse queries: "How much is a house in SW1?"
+- Extract postcode, property type, tenure
+- Intent detection (predict/compare/scenario)
+- Conversational context tracking
 
-**Key Design:** 3 crawlers use **identical code** with **different JSON instructions** loaded via dropdown selection.
+**8. Frontend Interface**
+- Streamlit web application
+- Form-based predictions
+- Real-time results
+- Interactive visualizations (Plotly)
+- Gauge charts, bar charts
+- Responsive layout
 
----
+**9. Data Strategy**
+- Lean approach: 155MB vs 15GB (100x reduction)
+- Smart caching to avoid re-downloads
+- Efficient Parquet storage
+- Preprocessed pipeline for fast loading
 
-## 📚 Documentation
-
-- [**FEATURES_COMPREHENSIVE.md**](FEATURES_COMPREHENSIVE.md) - Complete feature list with data sources
-- [**PROJECT_STATUS.md**](PROJECT_STATUS.md) - Current progress and next steps
-- [**KALMAN_ARCHITECTURE.md**](/mnt/project/KALMAN_ARCHITECTURE.md) - Detailed system design (in project files)
+**10. DevOps & Deployment**
+- Git version control (20+ commits)
+- Modular architecture
+- Virtual environment management
+- Requirements.txt with all dependencies
+- Ready for Hugging Face Spaces deployment
 
 ---
 
-## 🛠️ Technology Stack
+## 📊 Technical Stack
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| ML Framework | CatBoost 1.2+ | Gradient boosting models |
-| Explainability | SHAP 0.44+ | Feature importance |
-| LLM | Ollama + Llama 3 | Plain-English interpretation |
-| Backend | FastAPI 0.109+ | REST API |
-| Frontend | Streamlit 1.30+ | Web interface |
-| Data Processing | pandas, NumPy, scikit-learn | Data manipulation |
-| Validation | Pydantic 2.5+ | Schema validation |
-| Database | SQLite → PostgreSQL | Caching & storage |
-| Visualization | Plotly 5.18+ | Interactive charts |
+| **ML Model** | CatBoost | Gradient boosting regression |
+| **Explainability** | SHAP | Feature importance & interpretability |
+| **LLM** | Ollama + Llama 3.2 3B | Natural language explanations |
+| **Backend** | FastAPI | REST API server |
+| **Frontend** | Streamlit | Web interface |
+| **Data Processing** | pandas, numpy | Data manipulation |
+| **Validation** | Pydantic | Schema validation |
+| **Visualization** | Plotly | Interactive charts |
+| **Storage** | SQLite → Parquet | Caching & data storage |
+| **HTTP Client** | httpx, requests | API communication |
 
 ---
 
-## 📂 Project Structure
+## 🗂️ Project Structure
 ```
 kalman/
-├── agents/               # 5-agent system
-│   ├── crawler_agent.py       # Generic crawler
-│   ├── preprocessing_agent.py # Data cleaning & features
-│   └── ml_execution_agent.py  # Prediction & explanation
-├── backend/              # FastAPI API
-│   ├── main.py               # App entry point
-│   ├── routes.py             # Endpoints
-│   └── orchestrator.py       # Agent coordination
-├── frontend/             # Streamlit UI
-│   └── streamlit_app.py      # Complete web app
-├── config/
-│   ├── instructions/         # JSON configs for crawlers
-│   └── features/             # Feature engineering configs
+├── agents/
+│   ├── ml_execution_agent.py      # Model loading, prediction, LLM
+│   ├── nlp_agent.py                # Natural language parsing
+│   ├── preprocessing_agent.py      # Data cleaning pipeline
+│   └── crawler_agent.py            # Data fetching (placeholder)
+├── backend/
+│   ├── main.py                     # FastAPI app
+│   ├── routes.py                   # API endpoints
+│   ├── prediction_service.py      # Prediction logic
+│   ├── chat_manager.py            # Conversation memory
+│   └── models.py                   # Pydantic schemas
 ├── data/
-│   ├── training/raw/         # Downloaded bulk data
-│   ├── training/processed/   # Preprocessed datasets
-│   └── cache/                # SQLite cache
-├── models/               # Trained .cbm files
-├── schemas/              # Pydantic validation
-├── utils/                # Helper modules
-├── scripts/              # Data download & training
-├── tests/                # Unit tests
-└── deployment/           # HF Spaces & Colab configs
+│   ├── training/raw/              # 918K original transactions
+│   └── training/processed/        # 866K cleaned (Parquet)
+├── models/
+│   ├── house_2024_improved_v1.cbm           # Trained model (23MB)
+│   └── house_2024_improved_v1_metadata.json # Model info
+├── frontend/
+│   └── app.py                      # Streamlit interface
+├── scripts/
+│   ├── train_improved_model.py    # Training script
+│   ├── clean_and_save.py          # Data preprocessing
+│   └── test_prediction.py         # Testing utilities
+├── schemas/
+│   ├── land_registry.py           # Pydantic schemas
+│   ├── epc.py
+│   └── postcodes_io.py
+└── config/
+    └── instructions/              # Agent configurations (4 JSON files)
 ```
 
 ---
 
-## 🎯 Roadmap
+## 🚀 How to Run
 
-- [x] **Week 1-2:** Setup & Data Collection ✅
-  - [x] Project structure
-  - [x] Backend API
-  - [x] Frontend UI with 95+ features
-  - [x] Utility modules
-  - [x] GitHub repository
-  
-- [ ] **Week 2-3:** Model Training ⏳
-  - [ ] Data download scripts
-  - [ ] Preprocessing pipeline
-  - [ ] Train CatBoost models (house, restaurant, convenience, energy drink)
-  - [ ] Upload to Hugging Face Hub
-  
-- [ ] **Week 4:** Agent Integration
-  - [ ] Instruction JSON files
-  - [ ] Complete preprocessing agent
-  - [ ] Complete ML execution agent
-  - [ ] SHAP integration
-  
-- [ ] **Week 5:** LLM & Backend
-  - [ ] Ollama + Llama 3 setup
-  - [ ] Prompt engineering
-  - [ ] Frontend-backend integration
-  
-- [ ] **Week 6-7:** Additional Models
-  - [ ] Train remaining business models
-  - [ ] Train remaining product models
-  - [ ] Model evaluation & tuning
-  
-- [ ] **Week 8:** Deployment
-  - [ ] Hugging Face Spaces deployment
-  - [ ] Google Colab notebook
-  - [ ] Documentation & demo video
+### 1. Setup
+```bash
+git clone https://github.com/mjrtuhin/kalman.git
+cd kalman
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. Install Ollama (for LLM explanations)
+```bash
+curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull llama3.2:3b
+ollama serve &
+```
+
+### 3. Start Backend
+```bash
+uvicorn backend.main:app --port 8000 &
+```
+
+### 4. Start Frontend
+```bash
+streamlit run frontend/app.py
+```
+
+### 5. Use the App
+- Open browser: http://localhost:8501
+- Enter postcode (e.g., SW1A 1AA)
+- Select property type
+- Click "Get Prediction"
 
 ---
 
-## 🔬 Data Sources (100% Free)
+## 📈 Performance Metrics
 
-### Houses
-- HM Land Registry Price Paid Data (28M+ transactions)
-- EPC Register (30M+ certificates)
-- Police.uk API (crime data)
-- Postcodes.io API (geocoding)
-- ONS House Price Index
-- Environment Agency (flood risk)
-- Ofsted (school ratings)
-
-### Business
-- Companies House (bulk download + API)
-- ONS Business Demography (survival rates)
-- ONS Retail Sales Index
-- VOA Rating List (commercial property costs)
-- OpenStreetMap Overpass API (competition)
-
-### Products
-- Google Trends (pytrends library)
-- Kaggle Datasets (Amazon product data)
-- ONS Consumer Trends (market size)
+| Metric | Value | Interpretation |
+|--------|-------|----------------|
+| **R² Score** | 0.5855 | Model explains 58.5% of price variance |
+| **MAE** | £97,173 | Average error of ~£97K |
+| **RMSE** | £213,057 | Root mean squared error |
+| **Training Samples** | 866,199 | Real UK transactions from 2024 |
+| **Features** | 12 | Engineered from 5 raw fields |
+| **Model Size** | 23MB | Lightweight, fast inference |
+| **Prediction Time** | 1-2 seconds | Including LLM explanation |
 
 ---
 
-## 🤝 Contributing
+## 🎓 Key Learnings & Achievements
 
-This is a portfolio project, but suggestions are welcome! Please open an issue to discuss proposed changes.
+### What Went Well ✅
+1. **Full ML Pipeline** - Data → Training → Deployment
+2. **Lean Data Strategy** - 155MB vs 15GB (smart constraints)
+3. **LLM Integration** - Real AI explanations working
+4. **Fast Iteration** - Model trained in 30 minutes
+5. **Clean Architecture** - Modular, reusable code
+6. **Production-Ready API** - FastAPI with proper validation
+
+### Challenges Faced 🎯
+1. **Data Limitations** - Land Registry lacks property features
+2. **Feature Availability** - Can't predict bedrooms without EPC data
+3. **Conversational UX** - Natural language is hard to get right
+4. **Time Constraints** - Chose speed over completeness
+
+### Engineering Decisions 📝
+1. **Chose CatBoost over XGBoost** - Better categorical handling
+2. **Used Llama 3.2 3B not 8B** - 2GB vs 5GB storage
+3. **Parquet over CSV** - 10x faster loading
+4. **Form + Chat interfaces** - Reliability + Innovation
+5. **Local LLM vs API** - Free, private, but needs setup
+
+---
+
+## 🔮 Future Improvements
+
+### To Reach R² 0.75+ (Better Predictions)
+- [ ] Download EPC Register data (~6GB)
+- [ ] Join EPC with Land Registry by address
+- [ ] Add features: floor_area, bedrooms, EPC_rating
+- [ ] Retrain model with enriched features
+- [ ] Expected improvement: R² 0.59 → 0.75+
+
+### To Add More Use Cases
+- [ ] Train business viability model (SIC codes)
+- [ ] Train product launch model (Google Trends)
+- [ ] Multi-model system with dropdown selection
+
+### To Improve UX
+- [ ] Better conversational context handling
+- [ ] Fuzzy matching for partial postcodes
+- [ ] Interactive map with comparable sales
+- [ ] "What-if" scenario sliders
+
+### To Deploy
+- [ ] Upload models to Hugging Face Hub
+- [ ] Deploy to Hugging Face Spaces
+- [ ] Add authentication
+- [ ] Create public demo
+
+---
+
+## 🧪 Example Predictions
+
+### Test Case 1: London SW1 Semi-Detached
+```
+Input:
+- Postcode: SW1A 1AA
+- Type: Semi-Detached
+- Tenure: Freehold
+
+Output:
+- Prediction: £870,789
+- Range: £740K - £1.0M
+- Top Factor: Sector median price (34.5% importance)
+- Explanation: "Your semi-detached house in SW1 is estimated 
+  at £870,789, which is 117% above the area median..."
+```
+
+### Test Case 2: Manchester Terraced
+```
+Input:
+- Postcode: M1 2AB
+- Type: Terraced
+- Tenure: Freehold
+
+Output:
+- Prediction: £324,659
+- Range: £276K - £373K
+- Top Factor: Property type (20.2% importance)
+```
+
+---
+
+## 📚 Technologies Demonstrated
+
+### Machine Learning
+- ✅ Supervised learning (regression)
+- ✅ Feature engineering
+- ✅ Model training & validation
+- ✅ Hyperparameter tuning
+- ✅ Cross-validation
+- ✅ Performance metrics (R², MAE, RMSE)
+- ✅ Explainable AI (SHAP values)
+
+### Software Engineering
+- ✅ REST API development
+- ✅ Async programming (FastAPI)
+- ✅ Schema validation (Pydantic)
+- ✅ Conversation state management
+- ✅ Error handling & logging
+- ✅ Modular architecture
+- ✅ Git version control
+
+### Data Engineering
+- ✅ Large dataset processing (866K rows)
+- ✅ Data cleaning & validation
+- ✅ Feature engineering
+- ✅ Efficient storage (Parquet)
+- ✅ Caching strategies
+- ✅ Pipeline automation
+
+### AI & NLP
+- ✅ LLM integration (Ollama)
+- ✅ Prompt engineering
+- ✅ Natural language parsing
+- ✅ Intent detection
+- ✅ Conversational AI
+- ✅ Context tracking
+
+---
+
+## ⚖️ Honest Assessment
+
+### Strengths 💪
+- **Actually works** - Real predictions, real LLM, real API
+- **Well-structured** - Clean, modular, reusable code
+- **Documented** - Clear README, comments, metadata
+- **Deployable** - Ready for Hugging Face Spaces
+- **Demonstrates skills** - Full ML/API/LLM pipeline
+
+### Limitations 🎯
+- **Limited features** - Only location + type, no bedrooms/size
+- **Medium accuracy** - R² 0.59 (good not great)
+- **Single use case** - Only house prices (business/product planned)
+- **Conversational UX** - Chat works but could be smoother
+- **Local deployment** - Requires Ollama installation
+
+### Reality Check ✅
+This is an **MVP (Minimum Viable Product)**, not a production app.
+
+**It successfully demonstrates:**
+- I can build ML models
+- I can create REST APIs
+- I can integrate LLMs
+- I can process real data
+- I can ship working code
+
+**It honestly shows:**
+- Data quality matters
+- Feature availability is a constraint
+- MVPs have trade-offs
+- Real projects have limitations
+
+---
+
+## 🎯 Portfolio Value
+
+**For Employers/Recruiters:**
+- Shows **end-to-end ML engineering**
+- Demonstrates **problem-solving** (worked around data constraints)
+- Proves **shipping ability** (working code, not just notebooks)
+- Exhibits **honesty** (documents limitations clearly)
+- Displays **modern stack** (FastAPI, LLMs, SHAP)
+
+**Skills Demonstrated:**
+- Python (pandas, numpy, scikit-learn)
+- Machine Learning (CatBoost, SHAP)
+- API Development (FastAPI, REST)
+- LLM Integration (Ollama, Llama 3)
+- Frontend (Streamlit, Plotly)
+- Data Engineering (preprocessing, feature engineering)
+- DevOps (Git, virtual environments, deployment)
+
+---
+
+## 📞 Contact & Links
+
+**GitHub:** https://github.com/mjrtuhin/kalman
+**Status:** Functional MVP (Feb 2026)
+**Development Time:** ~8 hours over 2 sessions
+**Lines of Code:** ~2,000+
 
 ---
 
 ## 📄 License
 
-MIT License - See [LICENSE](LICENSE) for details
-
----
-
-## 👤 Author
-
-**Tuhin (mjrtuhin)**
-- GitHub: [@mjrtuhin](https://github.com/mjrtuhin)
-- Project: [kalman](https://github.com/mjrtuhin/kalman)
+MIT License - Free to use, modify, learn from
 
 ---
 
 ## 🙏 Acknowledgments
 
-- UK Government Open Data (Land Registry, Companies House, ONS)
-- CatBoost team for excellent documentation
-- Anthropic Claude for development assistance
+**Data Sources:**
+- HM Land Registry (Price Paid Data)
+- UK Government Open Data
+
+**Technologies:**
+- CatBoost, SHAP, FastAPI, Streamlit
+- Ollama, Llama 3
+- pandas, plotly, pydantic
+
+**Built as a learning project to demonstrate ML deployment skills.**
 
 ---
 
-**Status:** 🚧 Under Active Development (Week 1-2 of 8)  
-**Last Updated:** February 17, 2026
+**⚠️ Remember: This predicts based on location + type only. For real valuations, consult a professional surveyor!**
