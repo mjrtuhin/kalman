@@ -1,0 +1,28 @@
+{
+  "model_name": "house_2024_v1",
+  "version": "1.0",
+  "training_date": "2026-02-17T19:53:12.119660",
+  "data_size": 866199,
+  "train_size": 606339,
+  "val_size": 129930,
+  "test_size": 129930,
+  "features": [
+    "property_type",
+    "duration",
+    "postcode_sector",
+    "town_city",
+    "county"
+  ],
+  "categorical_features": [
+    "property_type",
+    "duration",
+    "postcode_sector",
+    "town_city",
+    "county"
+  ],
+  "metrics": {
+    "r2_score": 0.5108093909438132,
+    "mae": 102977.32556253362,
+    "rmse": 231465.33714394973
+  }
+}

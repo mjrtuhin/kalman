@@ -1,0 +1,24 @@
+{
+  "model_name": "house_2024_improved_v1",
+  "version": "1.0",
+  "training_date": "2026-02-17T20:02:07.335516",
+  "features": [
+    "property_type",
+    "duration",
+    "postcode_sector",
+    "town_city",
+    "county",
+    "month",
+    "quarter",
+    "is_new_build",
+    "is_freehold",
+    "sector_median_price",
+    "town_median_price",
+    "property_type_median"
+  ],
+  "metrics": {
+    "r2_score": 0.5855256737398773,
+    "mae": 97173.0375941051,
+    "rmse": 213056.9591918468
+  }
+}
