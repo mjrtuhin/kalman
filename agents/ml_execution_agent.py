@@ -1,21 +1,21 @@
 """
-ML Execution Agent - Loads model, predicts, generates explanations.
-Uses template-based explanations (no LLM needed).
+ML Execution Agent with REAL LLM (Ollama + Llama 3).
 """
 
 import pandas as pd
 from catboost import CatBoostRegressor
 import json
+import requests
 from typing import Dict, List
-from pathlib import Path
 
 class MLExecutionAgent:
-    """Handles model loading, prediction, and explanation generation."""
+    """Handles model loading, prediction, and LLM-powered explanations."""
     
     def __init__(self, model_path: str = "models/house_2024_improved_v1.cbm"):
         self.model_path = model_path
         self.model = None
         self.metadata = None
+        self.ollama_url = "http://localhost:11434/api/generate"
         
     def load_model(self):
         """Load trained model."""
@@ -30,13 +30,12 @@ class MLExecutionAgent:
         print(f"✅ Model loaded (R² {self.metadata['metrics']['r2_score']:.4f})")
         
     def predict(self, features: Dict) -> Dict:
-        """Make prediction and generate explanation."""
+        """Make prediction with LLM explanation."""
         
         if self.model is None:
             self.load_model()
         
         df = pd.DataFrame([features])
-        
         prediction = self.model.predict(df)[0]
         
         feature_importance = self.model.get_feature_importance()
@@ -48,7 +47,7 @@ class MLExecutionAgent:
             reverse=True
         )[:5]
         
-        explanation = self._generate_explanation(features, prediction, top_features)
+        explanation = self._generate_llm_explanation(features, prediction, top_features)
         
         return {
             "prediction": float(prediction),
@@ -58,58 +57,81 @@ class MLExecutionAgent:
             "top_factors": [{"feature": f, "importance": float(i)} for f, i in top_features]
         }
     
-    def _generate_explanation(self, features: Dict, prediction: float, top_features: List) -> str:
-        """Generate human-readable explanation using templates."""
+    def _generate_llm_explanation(self, features: Dict, prediction: float, top_features: List) -> str:
+        """Generate explanation using Ollama Llama 3."""
         
         property_type_map = {
             'D': 'detached house',
             'S': 'semi-detached house',
             'T': 'terraced house',
-            'F': 'flat/apartment'
+            'F': 'flat'
         }
         
-        tenure_map = {
-            'F': 'freehold',
-            'L': 'leasehold'
-        }
-        
-        prop_type = property_type_map.get(features.get('property_type', 'F'), 'property')
-        tenure = tenure_map.get(features.get('duration', 'F'), 'property')
+        prop_type = property_type_map.get(features.get('property_type', 'S'), 'property')
         location = features.get('town_city', 'this area')
         postcode = features.get('postcode_sector', '')
-        
-        explanation = f"Based on our analysis of 866,000 recent UK property sales, "
-        explanation += f"this {prop_type} ({tenure}) in {location}"
-        
-        if postcode:
-            explanation += f" ({postcode})"
-        
-        explanation += f" is estimated at £{prediction:,.0f}. "
-        
         sector_median = features.get('sector_median_price', 0)
+        
+        top_factor_names = [f[0] for f in top_features[:3]]
+        
+        prompt = f"""You are a UK property expert explaining house price predictions to homeowners.
+
+Property Details:
+- Type: {prop_type}
+- Location: {location} {postcode}
+- Predicted Price: £{prediction:,.0f}
+- Area Median: £{sector_median:,.0f}
+- Top Value Factors: {', '.join(top_factor_names)}
+
+Write a brief, friendly 2-3 sentence explanation for the homeowner about:
+1. The estimated price
+2. How it compares to the area
+3. The main factor affecting the value
+
+Use plain English, no jargon. Be conversational and helpful."""
+
+        try:
+            response = requests.post(
+                self.ollama_url,
+                json={
+                    "model": "llama3.2:3b",
+                    "prompt": prompt,
+                    "stream": False
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                return response.json()["response"].strip()
+            else:
+                return self._fallback_explanation(features, prediction, sector_median)
+                
+        except Exception as e:
+            print(f"⚠️ LLM error: {e}, using fallback")
+            return self._fallback_explanation(features, prediction, sector_median)
+    
+    def _fallback_explanation(self, features: Dict, prediction: float, sector_median: float) -> str:
+        """Fallback template if LLM fails."""
+        prop_type = features.get('property_type', 'property')
+        location = features.get('town_city', 'this area')
+        
+        explanation = f"This {prop_type} in {location} is estimated at £{prediction:,.0f}. "
+        
         if sector_median > 0:
-            diff_pct = ((prediction - sector_median) / sector_median) * 100
-            if abs(diff_pct) > 5:
-                direction = "above" if diff_pct > 0 else "below"
-                explanation += f"This is {abs(diff_pct):.1f}% {direction} the area median of £{sector_median:,.0f}. "
-        
-        if features.get('is_new_build'):
-            explanation += "As a new build property, this includes modern construction standards and warranties. "
-        
-        top_factor = top_features[0][0] if top_features else None
-        if top_factor == 'postcode_sector':
-            explanation += f"Location is the primary value driver for this property. "
-        elif top_factor == 'property_type':
-            explanation += f"Property type significantly influences the valuation. "
+            diff = prediction - sector_median
+            pct = (diff / sector_median) * 100
+            if abs(pct) > 5:
+                direction = "above" if pct > 0 else "below"
+                explanation += f"This is {abs(pct):.1f}% {direction} the area median."
         
         return explanation
 
 
 def test_agent():
-    """Test the ML Execution Agent."""
+    """Test with LLM."""
     
     print("="*70)
-    print("Testing ML Execution Agent")
+    print("Testing ML Agent with REAL LLM (Llama 3)")
     print("="*70)
     
     agent = MLExecutionAgent()
@@ -129,17 +151,16 @@ def test_agent():
         "property_type_median": 400000
     }
     
+    print("\n🤖 Generating prediction with LLM explanation...")
+    print("(This may take 10-20 seconds for first request)\n")
+    
     result = agent.predict(test_property)
     
-    print(f"\n💰 Prediction: £{result['prediction']:,.0f}")
-    print(f"📊 Confidence Range: £{result['confidence_low']:,.0f} - £{result['confidence_high']:,.0f}")
-    print(f"\n📝 Explanation:")
+    print(f"💰 Prediction: £{result['prediction']:,.0f}")
+    print(f"📊 Range: £{result['confidence_low']:,.0f} - £{result['confidence_high']:,.0f}")
+    print(f"\n🤖 LLM Explanation:")
     print(result['explanation'])
-    print(f"\n🔍 Top Factors:")
-    for factor in result['top_factors']:
-        print(f"   - {factor['feature']}: {factor['importance']:.2f}")
-    
-    print("\n✅ Agent working perfectly!")
+    print(f"\n✅ Real LLM working!")
 
 
 if __name__ == "__main__":
